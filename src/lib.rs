@@ -51,7 +51,8 @@ impl EntryStatus {
             'T' => Self::FileTypeChanged,
             'A' => Self::Added,
             'D' => Self::Deleted,
-            'R' => Self::Copied,
+            'R' => Self::Renamed,
+            'C' => Self::Copied,
             'U' => Self::UpdatedUnmerged,
             _ => return Err("Invalid status character"),
         })
@@ -71,7 +72,7 @@ pub struct AheadBehind {
     pub behind: i32,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, PartialEq)]
 pub struct Entry {
     pub index: EntryStatus,
     pub working_tree: EntryStatus,
@@ -132,6 +133,7 @@ impl<'a> GitStatus<'a> {
                     None => return Err(ParsingError(String::from("Missing path token"))),
                 }),
                 Some("u") => parse_unmerged_entry(&mut line, &mut gs)?,
+                Some(s) if s.is_empty() => continue,
                 Some(t) => return Err(ParsingError(format!("Invalid token {t}"))),
                 None => return Err(ParsingError(String::from("Missing token")))
             };
@@ -379,6 +381,72 @@ fn parse_rename_copy_paths(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parse() {
+        let stream = "# branch.oid 69311461eb463ecc58d3e5a992ad9ab36cdf33b7
+# branch.head main
+# branch.upstream origin/main
+# branch.ab +0 -0
+1 M. N... 100644 100644 100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 c7c7da3c64e86c3270f2639a1379e67e14891b6a test1.txt
+1 .M N... 100644 100644 100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 test2.txt
+2 R. N... 100644 100644 100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 R100 test3.txt	test 3.txt
+? test4.txt";
+        let gs = GitStatus::parse(&stream)
+            .expect("`GitStatus::parse` didn't return `Some(GitStatus)` with given input");
+
+        let entries = vec![
+            Entry {
+                index: EntryStatus::Modified,
+                working_tree: EntryStatus::Unmodified,
+                submodule: None,
+                file_mode_head: 33188,
+                file_mode_index: 33188,
+                file_mode_working_tree: 33188,
+                object_head: String::from("e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"),
+                object_index: String::from("c7c7da3c64e86c3270f2639a1379e67e14891b6a"),
+                path: PathBuf::from_str("test1.txt").unwrap(),
+                ..Default::default()
+            },
+            Entry {
+                index: EntryStatus::Unmodified,
+                working_tree: EntryStatus::Modified,
+                submodule: None,
+                file_mode_head: 33188,
+                file_mode_index: 33188,
+                file_mode_working_tree: 33188,
+                object_head: String::from("e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"),
+                object_index: String::from("e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"),
+                path: PathBuf::from_str("test2.txt").unwrap(),
+                ..Default::default()
+            },
+            Entry {
+                index: EntryStatus::Renamed,
+                working_tree: EntryStatus::Unmodified,
+                submodule: None,
+                file_mode_head: 33188,
+                file_mode_index: 33188,
+                file_mode_working_tree: 33188,
+                object_head: String::from("e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"),
+                object_index: String::from("e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"),
+                path: PathBuf::from_str("test3.txt").unwrap(),
+                rc_score: String::from("R100"),
+                original_path: Some(PathBuf::from_str("test 3.txt").unwrap()),
+            }
+        ];
+
+        assert_eq!(gs.branch_oid, Some("69311461eb463ecc58d3e5a992ad9ab36cdf33b7"));
+        assert_eq!(gs.branch_head, Some("main"));
+        assert_eq!(gs.branch_upstream, Some("origin/main"));
+        assert_eq!(gs.untracked[0], PathBuf::from_str("test4.txt").unwrap());
+        
+        for (parsed, given) in gs.entries.iter().zip(entries) {
+            assert_eq!(*parsed, given);
+        };
+
+
+        
+    }
 
     #[test]
     fn parse_ignored_entry() {

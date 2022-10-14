@@ -2,7 +2,7 @@
 name = "git_status_parser"
 version = "0.1.0"
 description = "parses git status porcelain format version 2 into struct"
-license = "MIT or Apache-2.0"
+license = "MIT OR Apache-2.0"
 
 [dependencies]
 

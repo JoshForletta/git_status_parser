@@ -102,7 +102,7 @@ pub struct UnmergedEntry {
     pub path: PathBuf,
 }
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct GitStatus<'a> {
     pub branch_oid: Option<&'a str>,
     pub branch_head: Option<&'a str>,

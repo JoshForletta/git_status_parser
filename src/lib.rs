@@ -86,6 +86,21 @@ pub struct Entry {
     pub original_path: Option<PathBuf>,
 }
 
+#[derive(Debug, Default)]
+pub struct UnmergedEntry {
+    pub index: EntryStatus,
+    pub working_tree: EntryStatus,
+    pub submodule: Option<SubmoduleState>,
+    pub file_mode_1: i32,
+    pub file_mode_2: i32,
+    pub file_mode_3: i32,
+    pub file_mode_working_tree: i32,
+    pub object_1: String,
+    pub object_2: String,
+    pub object_3: String,
+    pub path: PathBuf,
+}
+
 #[derive(Default)]
 pub struct GitStatus<'a> {
     pub branch_oid: Option<&'a str>,
@@ -93,6 +108,9 @@ pub struct GitStatus<'a> {
     pub branch_upstream: Option<&'a str>,
     pub branch_ab: Option<AheadBehind>,
     pub entries: Vec<Entry>,
+    pub unmerged: Vec<UnmergedEntry>,
+    pub untracked: Vec<PathBuf>,
+    pub ignored: Vec<PathBuf>,
 }
 
 impl<'a> GitStatus<'a> {
@@ -105,8 +123,17 @@ impl<'a> GitStatus<'a> {
                 Some("#") => parse_header(&mut line, &mut gs)?,
                 Some("1") => parse_ordinary_entry(&mut line, &mut gs)?,
                 Some("2") => parse_rename_copy_entry(&mut line, &mut gs)?,
-                Some(_) => panic!(),
-                _ => return Err(ParsingError(String::from(""))),
+                Some("?") => gs.untracked.push(match line.next() {
+                    Some(s) => PathBuf::from_str(s).expect("`PathBuf::from_str` is infailable"),
+                    None => return Err(ParsingError(String::from("Missing path token"))),
+                }),
+                Some("!") => gs.ignored.push(match line.next() {
+                    Some(s) => PathBuf::from_str(s).expect("`PathBuf::from_str` is infailable"),
+                    None => return Err(ParsingError(String::from("Missing path token"))),
+                }),
+                Some("u") => parse_unmerged_entry(&mut line, &mut gs)?,
+                Some(t) => return Err(ParsingError(format!("Invalid token {t}"))),
+                None => return Err(ParsingError(String::from("Missing token")))
             };
         }
 
@@ -177,7 +204,7 @@ fn parse_ordinary_entry<'a>(
         file_mode_working_tree: parse_file_mode(split)?,
         object_head: parse_object_name(split)?,
         object_index: parse_object_name(split)?,
-        path: PathBuf::from_str(split.as_str()).expect("`PathBuf::from_str` is infailable"),
+        path: parse_path(split)?,
         ..Default::default()
     });
 
@@ -197,11 +224,10 @@ fn parse_rename_copy_entry<'a>(
     let object_index = parse_object_name(split)?;
     let rc_score = match split.next() {
         Some(s) => String::from(s),
-        None => return Err(ParsingError(String::from("Missing rc score token")))
+        None => return Err(ParsingError(String::from("Missing rc score token"))),
     };
     let (path, original_path) = parse_rename_copy_paths(split)?;
-    
-    
+
     gs.entries.push(Entry {
         index,
         working_tree,
@@ -216,6 +242,28 @@ fn parse_rename_copy_entry<'a>(
         original_path,
     });
 
+    Ok(())
+}
+
+fn parse_unmerged_entry<'a>(
+    split: &mut Split<'a, &'a str>,
+    gs: &mut GitStatus<'a>,
+) -> Result<(), ParsingError> {
+    let (index, working_tree) = parse_section_status(split)?;
+
+    gs.unmerged.push(UnmergedEntry {
+        index,
+        working_tree,
+        submodule: parse_submodule(split)?,
+        file_mode_1: parse_file_mode(split)?,
+        file_mode_2: parse_file_mode(split)?,
+        file_mode_3: parse_file_mode(split)?,
+        file_mode_working_tree: parse_file_mode(split)?,
+        object_1: parse_object_name(split)?,
+        object_2: parse_object_name(split)?,
+        object_3: parse_object_name(split)?,
+        path: parse_path(split)?,
+    });
 
     Ok(())
 }
@@ -301,7 +349,18 @@ fn parse_object_name(split: &mut Split<&str>) -> Result<String, ParsingError> {
     }
 }
 
-fn parse_rename_copy_paths(split: &mut Split<&str>) -> Result<(PathBuf, Option<PathBuf>), ParsingError> {
+fn parse_path(split: &mut Split<&str>) -> Result<PathBuf, ParsingError> {
+    let path = split.as_str();
+    if path.is_empty() {
+        return Err(ParsingError(String::from("Missing path token")));
+    }
+
+    Ok(PathBuf::from_str(path).expect("`PathBuf::from_str` is infailable"))
+}
+
+fn parse_rename_copy_paths(
+    split: &mut Split<&str>,
+) -> Result<(PathBuf, Option<PathBuf>), ParsingError> {
     let mut paths = split.as_str().split('\t');
 
     let path = match paths.next() {
@@ -320,6 +379,36 @@ fn parse_rename_copy_paths(split: &mut Split<&str>) -> Result<(PathBuf, Option<P
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parse_ignored_entry() {
+        let stream = "! test4.txt";
+
+        let mut gs = GitStatus::parse(&stream)
+            .expect("`GitStatus::parse` didn't return `Some(GitStatus)` with given input");
+
+        let entry = gs
+            .ignored
+            .pop()
+            .expect("`GitStatus.entries` should have one element with given input");
+
+        assert_eq!(entry, PathBuf::from_str("test4.txt").unwrap());
+    }
+
+    #[test]
+    fn parse_untracked_entry() {
+        let stream = "? test4.txt";
+
+        let mut gs = GitStatus::parse(&stream)
+            .expect("`GitStatus::parse` didn't return `Some(GitStatus)` with given input");
+
+        let entry = gs
+            .untracked
+            .pop()
+            .expect("`GitStatus.entries` should have one element with given input");
+
+        assert_eq!(entry, PathBuf::from_str("test4.txt").unwrap());
+    }
 
     #[test]
     fn parse_rename_copy_path() {

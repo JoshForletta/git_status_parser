@@ -103,10 +103,10 @@ pub struct UnmergedEntry {
 }
 
 #[derive(Debug, Default)]
-pub struct GitStatus<'a> {
-    pub branch_oid: Option<&'a str>,
-    pub branch_head: Option<&'a str>,
-    pub branch_upstream: Option<&'a str>,
+pub struct GitStatus {
+    pub branch_oid: Option<String>,
+    pub branch_head: Option<String>,
+    pub branch_upstream: Option<String>,
     pub branch_ab: Option<AheadBehind>,
     pub entries: Vec<Entry>,
     pub unmerged: Vec<UnmergedEntry>,
@@ -114,11 +114,11 @@ pub struct GitStatus<'a> {
     pub ignored: Vec<PathBuf>,
 }
 
-impl<'a> GitStatus<'a> {
-    pub fn parse(stream: &'a str) -> Result<GitStatus<'a>, ParsingError> {
+impl<'a> GitStatus {
+    pub fn parse(s: String) -> Result<GitStatus, ParsingError> {
         let mut gs: GitStatus = Default::default();
 
-        for line in stream.split("\n") {
+        for line in s.split("\n") {
             let mut line = line.split(" ");
             match line.next() {
                 Some("#") => parse_header(&mut line, &mut gs)?,
@@ -145,27 +145,27 @@ impl<'a> GitStatus<'a> {
 
 fn parse_header<'a>(
     split: &mut Split<'a, &'a str>,
-    gs: &mut GitStatus<'a>,
+    gs: &mut GitStatus,
 ) -> Result<(), ParsingError> {
     if let Some(token) = split.next() {
         match token {
             "branch.oid" => {
                 gs.branch_oid = match split.next() {
                     Some("(initial)") => None,
-                    Some(commit) => Some(commit),
+                    Some(commit) => Some(String::from(commit)),
                     None => return Err(ParsingError(String::from("Missing commit token"))),
                 }
             }
             "branch.head" => {
                 gs.branch_head = match split.next() {
                     Some("(detached)") => None,
-                    Some(commit) => Some(commit),
+                    Some(branch) => Some(String::from(branch)),
                     None => return Err(ParsingError(String::from("Missing head token"))),
                 }
             }
             "branch.upstream" => {
                 gs.branch_upstream = match split.next() {
-                    Some(branch) => Some(branch),
+                    Some(branch) => Some(String::from(branch)),
                     None => {
                         return Err(ParsingError(String::from("Missing upstream branch token")))
                     }
@@ -193,7 +193,7 @@ fn parse_header<'a>(
 
 fn parse_ordinary_entry<'a>(
     split: &mut Split<'a, &'a str>,
-    gs: &mut GitStatus<'a>,
+    gs: &mut GitStatus,
 ) -> Result<(), ParsingError> {
     let (index, working_tree) = parse_section_status(split)?;
 
@@ -215,7 +215,7 @@ fn parse_ordinary_entry<'a>(
 
 fn parse_rename_copy_entry<'a>(
     split: &mut Split<'a, &'a str>,
-    gs: &mut GitStatus<'a>,
+    gs: &mut GitStatus,
 ) -> Result<(), ParsingError> {
     let (index, working_tree) = parse_section_status(split)?;
     let submodule = parse_submodule(split)?;
@@ -249,7 +249,7 @@ fn parse_rename_copy_entry<'a>(
 
 fn parse_unmerged_entry<'a>(
     split: &mut Split<'a, &'a str>,
-    gs: &mut GitStatus<'a>,
+    gs: &mut GitStatus,
 ) -> Result<(), ParsingError> {
     let (index, working_tree) = parse_section_status(split)?;
 
@@ -384,15 +384,15 @@ mod tests {
 
     #[test]
     fn parse() {
-        let stream = "# branch.oid 69311461eb463ecc58d3e5a992ad9ab36cdf33b7
+        let s = String::from("# branch.oid 69311461eb463ecc58d3e5a992ad9ab36cdf33b7
 # branch.head main
 # branch.upstream origin/main
 # branch.ab +0 -0
 1 M. N... 100644 100644 100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 c7c7da3c64e86c3270f2639a1379e67e14891b6a test1.txt
 1 .M N... 100644 100644 100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 test2.txt
 2 R. N... 100644 100644 100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 R100 test3.txt	test 3.txt
-? test4.txt";
-        let gs = GitStatus::parse(&stream)
+? test4.txt");
+        let gs = GitStatus::parse(s)
             .expect("`GitStatus::parse` didn't return `Some(GitStatus)` with given input");
 
         let entries = vec![
@@ -435,9 +435,9 @@ mod tests {
             }
         ];
 
-        assert_eq!(gs.branch_oid, Some("69311461eb463ecc58d3e5a992ad9ab36cdf33b7"));
-        assert_eq!(gs.branch_head, Some("main"));
-        assert_eq!(gs.branch_upstream, Some("origin/main"));
+        assert_eq!(gs.branch_oid, Some(String::from("69311461eb463ecc58d3e5a992ad9ab36cdf33b7")));
+        assert_eq!(gs.branch_head, Some(String::from("main")));
+        assert_eq!(gs.branch_upstream, Some(String::from("origin/main")));
         assert_eq!(gs.untracked[0], PathBuf::from_str("test4.txt").unwrap());
         
         for (parsed, given) in gs.entries.iter().zip(entries) {
@@ -450,9 +450,9 @@ mod tests {
 
     #[test]
     fn parse_ignored_entry() {
-        let stream = "! test4.txt";
+        let s = String::from("! test4.txt");
 
-        let mut gs = GitStatus::parse(&stream)
+        let mut gs = GitStatus::parse(s)
             .expect("`GitStatus::parse` didn't return `Some(GitStatus)` with given input");
 
         let entry = gs
@@ -465,9 +465,9 @@ mod tests {
 
     #[test]
     fn parse_untracked_entry() {
-        let stream = "? test4.txt";
+        let s = String::from("? test4.txt");
 
-        let mut gs = GitStatus::parse(&stream)
+        let mut gs = GitStatus::parse(s)
             .expect("`GitStatus::parse` didn't return `Some(GitStatus)` with given input");
 
         let entry = gs
@@ -480,9 +480,9 @@ mod tests {
 
     #[test]
     fn parse_rename_copy_path() {
-        let stream = "2 R. N... 100644 100644 100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 R100 test3.txt	test 3.txt";
+        let s = String::from("2 R. N... 100644 100644 100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 R100 test3.txt	test 3.txt");
 
-        let gs = GitStatus::parse(&stream)
+        let gs = GitStatus::parse(s)
             .expect("`GitStatus::parse` didn't return `Some(GitStatus)` with given input");
 
         let entry = gs
@@ -502,9 +502,9 @@ mod tests {
 
     #[test]
     fn parse_path() {
-        let stream = "1 M. N... 100644 100755 120000 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 c7c7da3c64e86c3270f2639a1379e67e14891b6a test1.txt";
+        let s = String::from("1 M. N... 100644 100755 120000 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 c7c7da3c64e86c3270f2639a1379e67e14891b6a test1.txt");
 
-        let gs = GitStatus::parse(&stream)
+        let gs = GitStatus::parse(s)
             .expect("`GitStatus::parse` didn't return `Some(GitStatus)` with given input");
 
         let entry = gs
@@ -520,9 +520,9 @@ mod tests {
 
     #[test]
     fn parse_object_names() {
-        let stream = "1 M. N... 100644 100755 120000 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 c7c7da3c64e86c3270f2639a1379e67e14891b6a test1.txt";
+        let s = String::from("1 M. N... 100644 100755 120000 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 c7c7da3c64e86c3270f2639a1379e67e14891b6a test1.txt");
 
-        let gs = GitStatus::parse(&stream)
+        let gs = GitStatus::parse(s)
             .expect("`GitStatus::parse` didn't return `Some(GitStatus)` with given input");
 
         let entry = gs
@@ -542,9 +542,9 @@ mod tests {
 
     #[test]
     fn parse_file_mode() {
-        let stream = "1 M. N... 100644 100755 120000 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 c7c7da3c64e86c3270f2639a1379e67e14891b6a test1.txt";
+        let s = String::from("1 M. N... 100644 100755 120000 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 c7c7da3c64e86c3270f2639a1379e67e14891b6a test1.txt");
 
-        let gs = GitStatus::parse(&stream)
+        let gs = GitStatus::parse(s)
             .expect("`GitStatus::parse` didn't return `Some(GitStatus)` with given input");
 
         let entry = gs
@@ -559,9 +559,9 @@ mod tests {
 
     #[test]
     fn parse_section_status() {
-        let stream = "1 M. N... 100644 100644 100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 c7c7da3c64e86c3270f2639a1379e67e14891b6a test1.txt";
+        let s = String::from("1 M. N... 100644 100644 100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 c7c7da3c64e86c3270f2639a1379e67e14891b6a test1.txt");
 
-        let gs = GitStatus::parse(&stream)
+        let gs = GitStatus::parse(s)
             .expect("`GitStatus::parse` didn't return `Some(GitStatus)` with given input");
 
         let entry = gs
@@ -575,9 +575,9 @@ mod tests {
 
     #[test]
     fn parse_none_submodule_state() {
-        let stream = "1 M. N... 100644 100644 100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 c7c7da3c64e86c3270f2639a1379e67e14891b6a test1.txt";
+        let s = String::from("1 M. N... 100644 100644 100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 c7c7da3c64e86c3270f2639a1379e67e14891b6a test1.txt");
 
-        let gs = GitStatus::parse(&stream)
+        let gs = GitStatus::parse(s)
             .expect("`GitStatus::parse` didn't return `Some(GitStatus)` with given input");
 
         assert_eq!(
@@ -591,9 +591,9 @@ mod tests {
 
     #[test]
     fn parse_submodule_state() {
-        let stream = "1 M. SCM. 100644 100644 100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 c7c7da3c64e86c3270f2639a1379e67e14891b6a test1.txt";
+        let s = String::from("1 M. SCM. 100644 100644 100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 c7c7da3c64e86c3270f2639a1379e67e14891b6a test1.txt");
 
-        let gs = GitStatus::parse(&stream)
+        let gs = GitStatus::parse(s)
             .expect("`GitStatus::parse` didn't return `Some(GitStatus)` with given input");
 
         let state = match &gs
@@ -613,9 +613,9 @@ mod tests {
 
     #[test]
     fn initial_branch_oid_returns_none() {
-        let stream = "# branch.oid (initial)";
+        let s = String::from("# branch.oid (initial)");
 
-        let gs = GitStatus::parse(&stream)
+        let gs = GitStatus::parse(s)
             .expect("`GitStatus::parse` didn't return `Some(GitStatus)` with given input");
 
         assert_eq!(gs.branch_oid, None);
@@ -623,9 +623,9 @@ mod tests {
 
     #[test]
     fn branch_oid() {
-        let stream = "# branch.oid 69311461eb463ecc58d3e5a992ad9ab36cdf33b7";
+        let s = String::from("# branch.oid 69311461eb463ecc58d3e5a992ad9ab36cdf33b7");
 
-        let gs = GitStatus::parse(&stream)
+        let gs = GitStatus::parse(s)
             .expect("`GitStatus::parse` didn't return `Some(GitStatus)` with given input");
 
         assert_eq!(
@@ -637,9 +637,9 @@ mod tests {
 
     #[test]
     fn detatched_head_returns_none() {
-        let stream = "# branch.head (detached)";
+        let s = String::from("# branch.head (detached)");
 
-        let gs = GitStatus::parse(&stream)
+        let gs = GitStatus::parse(s)
             .expect("`GitStatus::parse` didn't return `Some(GitStatus)` with given input");
 
         assert_eq!(gs.branch_head, None);
@@ -647,9 +647,9 @@ mod tests {
 
     #[test]
     fn branch_head() {
-        let stream = "# branch.head main";
+        let s = String::from("# branch.head main");
 
-        let gs = GitStatus::parse(&stream)
+        let gs = GitStatus::parse(s)
             .expect("`GitStatus::parse` didn't return `Some(GitStatus)` with given input");
 
         assert_eq!(
@@ -661,9 +661,9 @@ mod tests {
 
     #[test]
     fn branch_upstream() {
-        let stream = "# branch.upstream origin/main";
+        let s = String::from("# branch.upstream origin/main");
 
-        let gs = GitStatus::parse(&stream)
+        let gs = GitStatus::parse(s)
             .expect("`GitStatus::parse` didn't return `Some(GitStatus)` with given input");
 
         assert_eq!(
@@ -675,9 +675,9 @@ mod tests {
 
     #[test]
     fn branch_ab() {
-        let stream = "# branch.ab +4 -3";
+        let s = String::from("# branch.ab +4 -3");
 
-        let gs = GitStatus::parse(&stream)
+        let gs = GitStatus::parse(s)
             .expect("`GitStatus::parse` didn't return `Some(GitStatus)` with given input");
 
         assert_eq!(

@@ -1,5 +1,3 @@
-#![feature(str_split_as_str)]
-
 use std::{
     default::Default,
     error::Error,
@@ -352,18 +350,22 @@ fn parse_object_name(split: &mut Split<&str>) -> Result<String, ParsingError> {
 }
 
 fn parse_path(split: &mut Split<&str>) -> Result<PathBuf, ParsingError> {
-    let path = split.as_str();
+    let path: Vec<&str> = split.collect();
+    let path = path.join(" ");
+    
     if path.is_empty() {
         return Err(ParsingError(String::from("Missing path token")));
     }
 
-    Ok(PathBuf::from_str(path).expect("`PathBuf::from_str` is infailable"))
+    Ok(PathBuf::from_str(path.as_str()).expect("`PathBuf::from_str` is infailable"))
 }
 
 fn parse_rename_copy_paths(
     split: &mut Split<&str>,
 ) -> Result<(PathBuf, Option<PathBuf>), ParsingError> {
-    let mut paths = split.as_str().split('\t');
+    let paths: Vec<&str> = split.collect();
+    let paths = paths.join(" ");
+    let mut paths = paths.split('\t');
 
     let path = match paths.next() {
         Some(s) => PathBuf::from_str(s).expect("`PathBuf::from_str` is infailable"),
@@ -390,7 +392,7 @@ mod tests {
 # branch.ab +0 -0
 1 M. N... 100644 100644 100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 c7c7da3c64e86c3270f2639a1379e67e14891b6a test1.txt
 1 .M N... 100644 100644 100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 test2.txt
-2 R. N... 100644 100644 100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 R100 test3.txt	test 3.txt
+2 R. N... 100644 100644 100644 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 e69de29bb2d1d6434b8b29ae775ad8c2e48c5391 R100 test3.txt\ttest 3.txt
 ? test4.txt");
         let gs = GitStatus::parse(s)
             .expect("`GitStatus::parse` didn't return `Some(GitStatus)` with given input");
